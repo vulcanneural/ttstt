@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.python-version
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# TTSTT runtime / user data
+*.log
+/models/
+/voices/
+*.onnx
+*.bin
+*.gguf
+*.pt
+*.ckpt
+*.wav
+*.flac
+*.mp3
+# (sample/test fixtures should be force-added explicitly)
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+*.secret
+secrets/
+config.local.*
