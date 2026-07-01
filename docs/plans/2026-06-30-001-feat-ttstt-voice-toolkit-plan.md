@@ -28,11 +28,14 @@ packaging).
 
 This plan delivers a **vertical slice** in implementation-ready detail — press a bound key,
 speak, and have transcribed text injected into the focused application, end-to-end with
-`faster-whisper` and `ydotool` — built on the modular seams (STT backend, injector,
-activation, config) that the full feature set plugs into. It then sketches a **phased
-roadmap** for the remaining capabilities (VAD, streaming, wake-word continuous listening,
-TTS with custom voices, TUI/GUI, OSD, cloud adapters) so the whole arc is visible without
-over-specifying work that the slice will inform.
+`faster-whisper` and `wtype` — built on the modular seams (STT backend, injector, activation,
+config) that the full feature set plugs into. The slice deliberately validates **execution
+mechanics**, not the product's differentiating premise: streaming-by-default and passive
+wake-word listening (the capabilities no existing tool composes) live in the roadmap, and one
+streaming milestone is pulled forward (Phase 3) to de-risk that core claim sooner. It then
+sketches a **phased roadmap** for the remaining capabilities (VAD, streaming, wake-word
+continuous listening, TTS with custom voices, TUI/GUI, OSD, cloud adapters) so the whole arc is
+visible without over-specifying work that the slice will inform.
 
 ---
 
@@ -46,30 +49,40 @@ hackable, and local by default.
 
 **v1 done means:** a daemon-backed dictation loop where a compositor-bound keystroke toggles
 listening, speech is transcribed locally by `faster-whisper`, and the text is injected into
-the focused app via `ydotool` (with clipboard-paste fast path) — installed and configured per
+the focused app via `wtype` (with clipboard-paste fast path) — installed and configured per
 user by an onboarding command, on the user's COSMIC desktop.
 
 ---
 
 ## Problem Frame
 
-The user wants to stop "getting by" with a patchwork dictation setup (`voxtype`, with
-recurring COSMIC hotkey and GPU-device friction) and own a voice solution that is **local
-first, modular, and hackable**. Comparable products (whisper-flow / Wispr Flow, Monologue)
+The user wants to stop "getting by" with a patchwork dictation setup (`voxtype`) and own a
+voice solution that is **local first, modular, and hackable**. Note on prior pain: the user's
+voxtype trouble was primarily a **GPU device-index crash loop** (Vulkan/CUDA selecting the iGPU
+instead of the RTX 3070), fixed by pinning the device (`gpu_device=1`) — not a broken COSMIC
+keybind, which works (Super+KP_Add). So the motive is ownership, hackability, and the
+capabilities voxtype lacks (notably streaming-by-default and a composed wake-word pipeline),
+not a raw dictation capability gap. Comparable products (whisper-flow / Wispr Flow, Monologue)
 are cloud, closed, and not Linux-native. The Linux OSS space has strong *pieces* —
-`faster-whisper`, Silero VAD, openWakeWord, Kokoro, Chatterbox, `ydotool` — but **no tool
-composes them** into a local-first package with all the activation modes (PTT, toggle, VAD,
-passive continuous + wake word), streaming-by-default STT, first-class local TTS (base +
+`faster-whisper`, Silero VAD, openWakeWord, Kokoro, Chatterbox, `wtype`/`ydotool` — but **no
+tool composes them** into a local-first package with all the activation modes (PTT, toggle,
+VAD, passive continuous + wake word), streaming-by-default STT, first-class local TTS (base +
 custom voices), direct Wayland/X11 injection, and a per-user onboarding + TUI/GUI/OSD surface.
-TTSTT is that composition.
+TTSTT is that composition. (See **Alternatives Considered** for why greenfield over forking an
+existing tool.)
 
-Two environment realities constrain the design from day one (both confirmed from the user's
-notes):
-- **COSMIC does not reliably expose the Wayland virtual-keyboard protocol**, so naive `wtype`
-  injection fails; `ydotool`/uinput is the only dependable route on the target desktop.
-- **Global hotkeys on Wayland/COSMIC are restricted**, and the user has hit COSMIC keybind
-  pain before — so activation must be a daemon + control-CLI bound to a compositor shortcut,
-  not an in-process global hotkey grab.
+Two environment realities shape the design from day one, **verified against the user's machine
+and working voxtype setup**:
+- **`wtype` works on the target COSMIC session.** COSMIC (`cosmic-comp` 1.0.0) exposes the
+  Wayland virtual-keyboard protocol, and the user's working voxtype config already injects via
+  `wtype` by default (`driver_order = ["wtype", "dotool", "ydotool", "clipboard"]`). So `wtype`
+  + clipboard-paste is the **no-sudo default**, and `ydotool`/uinput is a fallback — not the
+  only route. (The user is already in the `input` group with a `/dev/uinput` ACL, so the uinput
+  path is available too if a non-COSMIC environment ever needs it.)
+- **Global hotkeys on Wayland/COSMIC are restricted** — no in-process global grab — so
+  activation binds a compositor keyboard shortcut to a control CLI. This restriction (and the
+  need to host multiple activation modes), not any past keybind failure, is what justifies the
+  daemon + control-CLI spine.
 
 ---
 
@@ -115,7 +128,7 @@ phased follow-up (design seams exist in v1).
   voices, and custom voices cloned from local samples.
 - **R12 [roadmap]** — Pluggable TTS backend mirroring R2, with cloud TTS adapters.
 - **R13 [roadmap]** — Cloud connectivity for both STT and TTS behind the same interfaces
-  (opt-in, key-gated).
+  (opt-in, key-gated); credentials read from env/OS-keyring, never committed to config or logged.
 - **R14 [roadmap]** — Default TUI with full parity for user preferences, plus an optional GUI
   install.
 - **R15 [roadmap]** — Configurable, minimal-by-default on-screen display (OSD) overlay.
@@ -128,9 +141,9 @@ phased follow-up (design seams exist in v1).
 - **F1 [v1] — Toggle dictation.** A1 presses the bound key → daemon starts capture → speaks →
   presses the key again → daemon stops capture, transcribes, injects text into the focused app,
   clears the status indicator.
-- **F2 [v1] — First-run onboarding.** A2 runs `ttstt onboard` → tool checks PipeWire, uinput
-  access, and `ydotoold`; downloads the default model; writes `config.toml`; prints the COSMIC
-  keybind to bind to `ttstt toggle`.
+- **F2 [v1] — First-run onboarding.** A2 runs `ttstt onboard` → tool checks PipeWire, probes
+  the injector chain (`wtype` → clipboard → `ydotool`), verifies the downloaded model's hash,
+  writes `config.toml`; prints the COSMIC keybind to bind to `ttstt toggle`.
 - **F3 [roadmap] — Passive wake-word dictation.** Daemon idles listening → wake word detected →
   VAD endpoints the utterance → streaming STT transcribes → text injected → returns to idle.
 - **F4 [roadmap] — Speak text (TTS).** A1 runs `ttstt say "<text>"` (or pipes stdin) → selected
@@ -145,14 +158,18 @@ phased follow-up (design seams exist in v1).
   receives the text "open the pod bay doors" within a few seconds.
 - **AE2 [v1]** — Given no network connection, when the user performs AE1, then transcription
   still succeeds (the default path is fully offline).
-- **AE3 [v1]** — Given the desktop is COSMIC (no virtual-keyboard protocol), when injection runs,
-  then text is delivered via `ydotool`/uinput (or clipboard-paste) and the clipboard contents
-  present before injection are restored afterward.
+- **AE3 [v1]** — Given the desktop is COSMIC 1.0.0, when injection runs, then text is delivered
+  via `wtype` (or clipboard-paste), and any *text* clipboard content present before injection is
+  restored afterward — restored only **after** the target app has consumed the paste, not
+  immediately (non-text clipboard content, e.g. images, is out of v1 restore scope).
 - **AE4 [v1]** — Given a fresh machine, when the user runs `ttstt onboard`, then it reports each
-  dependency's status, fails with an actionable message (and non-zero exit) if uinput is
-  inaccessible, and on success prints the exact `ttstt toggle` keybind command to set in COSMIC.
-- **AE5 [v1]** — Given `device = "cuda"` is configured but CUDA is unavailable, when the daemon
-  starts, then it logs a clear warning and falls back to CPU rather than crashing.
+  dependency's status, selects a working injector (`wtype` on COSMIC) or fails with an actionable
+  message (and non-zero exit) if *no* injector is available, and on success prints the exact
+  `ttstt toggle` keybind command to set in COSMIC.
+- **AE5 [v1]** — Given `device = "cuda"` is configured but CUDA or a compatible cuDNN is
+  unavailable, when the daemon starts, then a controlled GPU warm-up transcribe detects the
+  fault, logs a clear warning, and falls back to CPU — rather than aborting natively on the
+  first real utterance.
 - **AE6 [v1]** — Given a config file sets `model = "base"` and an env var overrides it to
   `small`, when the daemon starts, then the effective model is `small` (CLI > env > file >
   default precedence holds).
@@ -215,9 +232,10 @@ graph TD
         FW["faster-whisper (v1)"]
         STREAM["streaming STT (roadmap)"]
         CLOUDSTT["cloud STT (roadmap)"]
-        YDO["ydotool / uinput (v1)"]
+        WTYPE["wtype virtual-kbd (v1 default)"]
         CLIP["clipboard+paste (v1)"]
-        WTYPE["wtype / xdotool (roadmap)"]
+        YDO["ydotool / uinput (v1 fallback)"]
+        XDO["xdotool / X11 (roadmap)"]
     end
 
     CONF["Config (TOML+env+CLI,\nPydantic)"]
@@ -231,9 +249,10 @@ graph TD
     STT -.implements.- FW
     STT -.implements.- STREAM
     STT -.implements.- CLOUDSTT
-    INJ -.implements.- YDO
-    INJ -.implements.- CLIP
     INJ -.implements.- WTYPE
+    INJ -.implements.- CLIP
+    INJ -.implements.- YDO
+    INJ -.implements.- XDO
     CONF --> DAEMON
     ONBOARD --> CONF
     CFG --> CONF
@@ -264,8 +283,9 @@ sequenceDiagram
     Daemon->>STT: transcribe(buffer)
     STT-->>Daemon: text
     Daemon->>Inj: inject(text)
-    Inj->>App: ydotool/paste -> text appears
-    Daemon->>Daemon: clear status, restore clipboard
+    Inj->>App: wtype (or clipboard-paste) -> text appears
+    App-->>Inj: paste consumed
+    Daemon->>Daemon: clear status, restore clipboard (after consume)
 ```
 
 ---
@@ -280,30 +300,41 @@ sequenceDiagram
 
 - **KTD2 — Default STT = `faster-whisper` (int8), device-selectable.** One MIT codebase scales
   from CPU (`base`/`small`) to the RTX 3070 (`large-v3` int8 ≈ 2.9 GB). Compute device is a
-  config knob; onboarding verifies the CUDA index rather than hardcoding it (the user's prior
-  `voxtype` GPU-device confusion was render-node enumeration, *not* CUDA index — see Open
-  Questions). True-streaming models (Nemotron-Streaming-0.6B GPU / Moonshine v2 CPU) are
-  deferred to the streaming mode (R10) behind the same interface.
+  config knob; onboarding verifies the CUDA index rather than hardcoding it. The user's prior
+  voxtype crash was a real GPU device-index fault (Vulkan selecting the iGPU over the 3070), and
+  voxtype's Vulkan device index is *not* the same enumeration as faster-whisper's CUDA index —
+  so the index must be probed on-machine, not copied across (see OQ1). A controlled GPU warm-up
+  at startup converts otherwise-uncatchable native GPU-library aborts into a clean CPU fallback
+  (AE5). True-streaming models (Nemotron-Streaming-0.6B GPU / Moonshine v2 CPU) are deferred to
+  the streaming mode (R10) behind the same interface.
 
-- **KTD3 — Injection = `ydotool`/uinput universal default + clipboard-paste fast path +
-  opportunistic `wtype`.** uinput is the only compositor-agnostic route and the *only*
-  dependable one on COSMIC (no virtual-keyboard protocol). Long/Unicode text uses
-  clipboard+paste (save/restore clipboard); `wtype` is used only where the virtual-keyboard
-  global is detected at runtime. Never trust compositor version numbers — detect supported
-  globals at runtime.
+- **KTD3 — Injection = `wtype` (virtual-keyboard) default + clipboard-paste fast path +
+  `ydotool`/uinput fallback.** *Verified on the target machine:* COSMIC 1.0.0 exposes the
+  virtual-keyboard protocol and the user's voxtype already defaults to `wtype`
+  (`driver_order = ["wtype", "dotool", "ydotool", "clipboard"]`), so `wtype` is the no-sudo v1
+  default. Long/Unicode text uses clipboard+paste (save/restore clipboard, restoring only after
+  the target consumes the paste). `ydotool`/uinput is the compositor-agnostic **fallback** for
+  environments lacking the virtual-keyboard global (other compositors; X11 gets `xdotool` in the
+  roadmap). A runtime capability probe orders the chain per detected globals — never trust
+  compositor version numbers. This replaces the plan's original ydotool-first premise, which was
+  wrong for COSMIC and manufactured an unnecessary no-sudo uinput dependency.
 
 - **KTD4 — Activation spine = daemon + control CLI bound to a compositor shortcut; toggle
-  first.** Wayland forbids in-process global hotkey grabs and COSMIC keybinding has bitten the
-  user before. A single keybind → `ttstt toggle` over a unix socket is robust everywhere.
-  True hold-PTT needs key *release* events (not delivered by compositor keybinds), so it is a
-  roadmap unit via evdev or the XDG GlobalShortcuts portal.
+  first.** Wayland forbids in-process global hotkey grabs, and hosting multiple activation modes
+  (toggle now; PTT/VAD/wake-word later) needs a resident process — this, not any past keybind
+  failure, justifies the spine (the user's COSMIC keybind works today via Super+KP_Add). A single
+  keybind → `ttstt toggle` over a unix socket is robust everywhere. True hold-PTT needs key
+  *release* events (not delivered by compositor keybinds), so it is a roadmap unit via evdev or
+  the XDG GlobalShortcuts portal.
 
 - **KTD5 — Permissive-only defaults (R16).** Bundled defaults are MIT/Apache/BSD only:
   `faster-whisper` (MIT), Silero VAD (MIT), openWakeWord (Apache-2.0), Kokoro-82M (Apache-2.0),
   Chatterbox (MIT). GPL (Piper) and non-commercial (XTTS-v2/CPML, F5-TTS weights) engines are
   opt-in plugins the user installs explicitly, never shipped. Porcupine is rejected outright
-  (3-user cap + runtime AccessKey). This matters: TTSTT is a public Vulcan Neural repo that may
-  be commercialized.
+  (3-user cap + runtime AccessKey). **Judge licensing on the model *weights*, not just the code
+  repo** — the two can differ (XTTS-v2 code is MPL-2.0 but its weights are non-commercial CPML;
+  F5-TTS code is MIT but its base weights are CC-BY-NC). This matters: TTSTT is a public Vulcan
+  Neural repo that may be commercialized.
 
 - **KTD6 — Layered config, few knobs (Karpathy "one dial").** `defaults → ~/.config/ttstt/
   config.toml → TTSTT_* env → CLI flags`, validated with Pydantic. Expose the few choices a user
@@ -311,17 +342,51 @@ sequenceDiagram
   system is *not* a "config monster" — this is the deliberate bend from the teaching-repo ethos.
 
 - **KTD7 — Backend interfaces defined now, with ≥1 concrete impl each.** Modularity is a core
-  product requirement, so the STT/Injector/Activation interfaces are the product and are
-  defined in v1 — but Karpathy's "no speculative abstraction" rule still holds: each interface
-  ships with exactly one real implementation in v1; additional impls (streaming, cloud, wtype)
-  arrive with the roadmap units that need them.
+  product requirement, so the STT and Injector interfaces are the product and are defined in v1 —
+  and both earn it immediately (Injector ships two real v1 impls, `wtype` + clipboard; STT's
+  pluggability is an explicit v1 requirement, R2). The **Activation** interface is the exception:
+  it has one trivial v1 impl (`ToggleActivation`) and its pluggability is roadmap (R9), so treat
+  its protocol as *provisional* — implement `ToggleActivation` as a concrete class in v1 and
+  extract the `Activation` protocol in Phase 2 when `PttActivation`/`VadActivation` arrive, so the
+  seam is introduced by its second consumer rather than ahead of it. This keeps Karpathy's "no
+  speculative abstraction" rule intact where it bites.
 
 - **KTD8 — Packaging via `uv` + `pyproject.toml`, console entry point `ttstt`.** Mirrors
   Karpathy's own `nanochat` toolchain choice; minimal, reproducible, locked dependencies.
 
 - **KTD9 — Audio capture = `sounddevice` (PortAudio).** NumPy-native callback streaming that
-  rides PipeWire transparently on current distros; `python-rtmixer` reserved for a jitter-free
-  native hot path only if needed.
+  rides PipeWire via PortAudio's ALSA/Pulse bridge on current distros. This binding is *not yet
+  verified on the target* (the user's working setup uses whisper.cpp, not `sounddevice`), so
+  onboarding runs a capture smoke-test (record → playback) confirming `sounddevice` enumerates
+  the intended device, and names `python-rtmixer` (or a direct PipeWire path) as the fallback if
+  it does not.
+
+---
+
+## Alternatives Considered
+
+This is a from-scratch build with no upstream requirements doc validating the "build new"
+premise, so the buy/extend-vs-build comparison is made explicit here:
+
+- **Fix / extend `voxtype` (the current tool).** Lowest immediate cost — voxtype already does
+  daily dictation on this COSMIC machine (working `wtype` injection, working Super+KP_Add keybind,
+  GPU crash resolved). *Rejected as the primary path:* it is a Rust codebase less hackable than
+  the stated Python/Karpathy goal, and lacks the streaming-by-default and composed wake-word
+  pipeline that motivate TTSTT. It stays the fallback if TTSTT stalls, and its config
+  (`driver_order`, `gpu_device`) is the reference for TTSTT's own defaults.
+- **Fork `hyprvoice` or `whisrs`.** Both already implement a daemon + `wtype`/clipboard/ydotool
+  injection loop — i.e. most of the v1 slice. *Rejected as the base:* hyprvoice is
+  Hyprland-oriented and whisrs is Rust; adopting either forfeits the Python-hackability and clean
+  backend-interface design that are the point. Used as **pattern references** (injection fallback
+  chain, single-process daemon shape), not forked.
+- **Greenfield (chosen).** Highest build cost, but the only path that delivers the readable,
+  hackable, Python-first, fully-modular toolkit the goal describes. The vertical slice — and the
+  U0 spike before it — keep that cost honest by proving mechanics before the roadmap expands.
+
+**Cost check:** the v1 slice duplicates capability hyprvoice/whisrs already ship. That
+duplication is accepted *only* because ownership, hackability, and the modular seams are the
+product. If those stop mattering, forking hyprvoice is the cheaper route and this decision
+should be revisited.
 
 ---
 
@@ -340,21 +405,23 @@ ttstt/
 ├── src/ttstt/
 │   ├── __init__.py
 │   ├── __main__.py             # `python -m ttstt`
-│   ├── cli.py                  # argparse command tree (toggle, onboard, config, daemon)
+│   ├── cli.py                  # argparse command tree (toggle, onboard, config, daemon, spike)
 │   ├── config.py               # layered config + Pydantic models
-│   ├── daemon.py               # long-running loop + unix control socket
+│   ├── daemon.py               # long-running loop + unix control socket (0600)
 │   ├── audio.py                # sounddevice capture + ring buffer
 │   ├── status.py               # minimal desktop-notification status (OSD later)
 │   ├── onboarding.py           # dependency/permission checks + setup
+│   ├── spike.py                # U0 one-shot record->transcribe->inject (pre-slice validation)
 │   ├── stt/
 │   │   ├── base.py             # STTBackend protocol
-│   │   └── faster_whisper.py   # v1 implementation
+│   │   └── faster_whisper.py   # v1 implementation (+ GPU warm-up)
 │   ├── inject/
-│   │   ├── base.py             # Injector protocol + capability detection
-│   │   ├── ydotool.py          # uinput injector (v1 default)
-│   │   └── clipboard.py        # clipboard+paste fast path (v1)
+│   │   ├── base.py             # Injector protocol + runtime capability detection + chooser
+│   │   ├── wtype.py            # virtual-keyboard injector (v1 default)
+│   │   ├── clipboard.py        # clipboard+paste fast path (v1, consume-then-restore)
+│   │   └── ydotool.py          # uinput injector (v1 fallback)
 │   └── activation/
-│       ├── base.py             # Activation protocol
+│       ├── base.py             # Activation protocol (provisional; extracted in Phase 2)
 │       └── toggle.py           # v1 toggle activation
 └── tests/
     ├── test_config.py
@@ -373,6 +440,37 @@ may adjust the layout if implementation reveals a better one.*
 
 ## Implementation Units (vertical slice)
 
+### U0. Feasibility spike — one-shot record → transcribe → inject
+
+**Goal:** Before building any daemon/socket/interface machinery, prove the two genuinely
+unvalidated environmental unknowns end-to-end on the target machine: (a) does `wtype`/clipboard
+injection actually land text into the focused COSMIC app for this user, and (b) does
+`faster-whisper` transcribe on the RTX 3070 (or fall back cleanly). A throwaway ~30–50 line
+script, no abstractions.
+
+**Requirements:** De-risks R1, R3, R5 before they are built out.
+
+**Dependencies:** none (may precede U1; lives in `src/ttstt/spike.py` or a `scratch/` script).
+
+**Files:** `src/ttstt/spike.py` (or `scratch/spike.py`), wired as a hidden `ttstt spike` command.
+
+**Approach:** Record a few seconds of mic audio (sounddevice or a quick `pw-record` shell-out),
+run one `faster-whisper` transcription (try `cuda`, catch/warm-up, else CPU), and inject the
+text via `wtype` — printing which injector and device actually worked. No config system, no
+daemon, no interfaces. Purpose is falsification: if injection or GPU transcription fails here,
+the plan's defaults change before U2+ are built.
+
+**Execution note:** This is a spike — delete or fold its learnings into U3/U4/U5 once the slice
+exists. Do not grow it into the real capture/inject modules.
+
+**Test scenarios:** Test expectation: none — throwaway validation script. Success is the manual
+observation that text appears in a focused editor and transcription runs on the intended device.
+
+**Verification:** On the user's COSMIC/3070 machine, running the spike types a spoken phrase into
+a focused app and reports the working injector + compute device. Findings feed U3/U4/U5 defaults.
+
+---
+
 ### U1. Project scaffold, tooling, and style guide
 
 **Goal:** A runnable, lintable, testable Python package with the Karpathy-derived style guide
@@ -387,8 +485,9 @@ and machine-readable docs, so every later unit lands in a consistent home.
 `.github/workflows/ci.yml`.
 
 **Approach:** `uv` project; `ruff` + `pytest` configured in `pyproject.toml`; console entry
-point `ttstt = "ttstt.cli:main"`. `cli.py` defines the command tree (`toggle`, `ptt`,
-`daemon`, `onboard`, `config`) with stub handlers. `CONTRIBUTING.md` encodes the style rules
+point `ttstt = "ttstt.cli:main"`. `cli.py` defines the command tree (`toggle`, `daemon`,
+`onboard`, `config`; `ptt` and `say` registered as explicit roadmap stubs that print
+"not yet implemented") with handlers. `CONTRIBUTING.md` encodes the style rules
 distilled from research: minimal dependencies (each must justify itself), explicit over
 abstracted, few-files/one-job, derive config don't expose it, surgical diffs, small honest line
 counts, machine-readable docs — with the explicit "where we bend for a real tool" section
@@ -484,55 +583,72 @@ buffer to text on CPU or the user's GPU.
 forward-declared streaming signature (`stream(frames) -> Iterator[Partial]`) that v1 leaves
 unimplemented (documented `NotImplementedError`) so the streaming roadmap unit slots in without
 interface churn. `FasterWhisperBackend` loads a model per config (`model`, `device`,
-`compute_type=int8`/`int8_float16`), downloads/caches weights on first use, and transcribes.
-CUDA-unavailable → warn + CPU fallback (don't crash).
+`compute_type=int8`/`int8_float16`) and transcribes. **Model integrity:** pin each model to a
+specific hub revision/commit and verify the downloaded artifact against its published hash over
+HTTPS before load, failing closed on mismatch — weight loaders are a supply-chain/RCE vector and
+the download runs unattended in onboarding (see U8). **GPU robustness:** on `device="cuda"`, run
+a controlled warm-up transcribe at construction so an otherwise-uncatchable native GPU-library
+abort (e.g. cuDNN version mismatch, which surfaces on the *first* real transcribe, not at
+`WhisperModel()` construction) is turned into a clean CPU fallback; pin the `cudnn-cu12` version
+in the uv lock to reduce mismatch risk.
 
 **Patterns to follow:** `faster-whisper` `WhisperModel` API; KTD2, KTD7.
 
 **Test scenarios:**
 - Covers AE2. Transcribe a short fixture WAV ("testing one two three") with the smallest model → output contains the expected words (tolerant match). (integration; gated/marked so CI can skip the model download, run locally)
-- Covers AE5. `device="cuda"` with CUDA unavailable → logs warning, transcribes on CPU, no crash.
+- Covers AE5. `device="cuda"` with CUDA unavailable → warm-up detects the fault, logs warning, transcribes on CPU, no native abort on first utterance.
+- Model hash mismatch (faked bad artifact) → load fails closed with an actionable error; no partial/tampered model is used.
 - Empty/silent buffer → empty or whitespace string, no exception.
 - Backend honors the configured model/device (assert constructor args via a thin seam/mock).
 - Protocol conformance: `FasterWhisperBackend` satisfies `STTBackend`; calling `stream()` raises documented `NotImplementedError`.
 
-**Verification:** Local run transcribes a fixture clip correctly on CPU and on `cuda`; CPU-fallback path exercised with CUDA disabled.
+**Verification:** Local run transcribes a fixture clip correctly on CPU and on `cuda`; the warm-up CPU-fallback path is exercised with CUDA/cuDNN disabled; a tampered-weight artifact is rejected.
 
 ---
 
-### U5. Injector interface + `ydotool` impl + clipboard-paste fast path
+### U5. Injector interface + `wtype` default + clipboard-paste fast path + `ydotool` fallback
 
-**Goal:** Deliver transcribed text into the focused application reliably on COSMIC and other
-compositors, with runtime capability detection.
+**Goal:** Deliver transcribed text into the focused application reliably on COSMIC (via `wtype`)
+and other compositors, with runtime capability detection and a safe clipboard round-trip.
 
 **Requirements:** R5, R16 (only permissive tools).
 
 **Dependencies:** U1, U2.
 
-**Files:** `src/ttstt/inject/base.py`, `src/ttstt/inject/ydotool.py`,
-`src/ttstt/inject/clipboard.py`, `tests/test_inject.py`.
+**Files:** `src/ttstt/inject/base.py`, `src/ttstt/inject/wtype.py`,
+`src/ttstt/inject/clipboard.py`, `src/ttstt/inject/ydotool.py`, `tests/test_inject.py`.
 
 **Approach:** `Injector` protocol `inject(text: str) -> None` plus a `capabilities()` probe that
-detects, at runtime: `ydotoold` availability + uinput access, `wl-copy`/`wl-paste`, the
-virtual-keyboard Wayland global, and X11/XWayland. `YdotoolInjector` types via uinput;
-`ClipboardInjector` saves current clipboard → sets text → synthesizes paste (Ctrl+V, with
-terminal Ctrl+Shift+V awareness) → restores clipboard. A small `select_injector(config,
-capabilities)` chooses: explicit config override, else clipboard-paste for long/Unicode text,
-else ydotool type. Never trust version numbers — branch on detected globals.
+detects, at runtime: the virtual-keyboard Wayland global (drives `wtype`), `wl-copy`/`wl-paste`,
+`ydotoold` availability + uinput access, and X11/XWayland. `WtypeInjector` types via the
+virtual-keyboard protocol (v1 default on COSMIC). `ClipboardInjector` saves current clipboard →
+sets text → synthesizes paste (Ctrl+V, with terminal Ctrl+Shift+V awareness) → **waits for the
+target to consume the paste (bounded settle) before restoring** — restoring immediately races the
+async Wayland clipboard read and can paste stale content. `YdotoolInjector` (uinput) is the
+fallback where the virtual-keyboard global is absent. `select_injector(config, capabilities)`
+chooses: explicit config override, else `wtype`, else clipboard-paste for long/Unicode text, else
+`ydotool`. Never trust version numbers — branch on detected globals.
 
-**Patterns to follow:** `hyprvoice` (ydotool+wtype+clipboard fallback), `nerd-dictation` ydotool
-notes; KTD3.
+**Privacy note (clipboard path):** the clipboard fast path transits transcribed speech (possibly
+secrets) through the system clipboard, where clipboard-history managers snapshot it — restoring
+the prior value does not un-snapshot it. Expose a config knob (`inject.sensitive = "type"`) that
+forces `wtype`/`ydotool` typing (no clipboard transit) and make clipboard-paste opt-in for
+arbitrary text, not automatic.
+
+**Patterns to follow:** `voxtype` `driver_order = ["wtype", "dotool", "ydotool", "clipboard"]`
+(the working config on this machine); `hyprvoice` fallback chain; KTD3.
 
 **Test scenarios:**
-- Covers AE3. Clipboard injector saves a sentinel clipboard value, injects text, and restores the sentinel afterward (assert via faked `wl-copy`/`wl-paste`).
-- `select_injector` picks clipboard-paste for long/Unicode text and ydotool for short ASCII (table test).
-- Missing `ydotoold` → capability probe reports it; selector avoids ydotool or surfaces an actionable error.
-- ydotool injector formats the uinput/type invocation correctly (assert command construction against a fake subprocess).
-- COSMIC-shaped capabilities (no virtual-keyboard global) → selector never chooses `wtype`.
+- Covers AE3. Clipboard injector saves a sentinel clipboard value, injects text, restores the sentinel **only after** a simulated consume signal (assert ordering via faked `wl-copy`/`wl-paste`, not just final state).
+- `select_injector` picks `wtype` on COSMIC-shaped capabilities (virtual-keyboard global present); picks clipboard-paste for long/Unicode; falls to `ydotool` only when the global is absent (table test).
+- `wtype` injector formats the virtual-keyboard invocation correctly (assert command construction against a fake subprocess).
+- Missing virtual-keyboard global AND missing uinput → selector surfaces an actionable "no injector available" error.
+- `inject.sensitive = "type"` forces a typing injector and never touches the clipboard.
 - Unicode/emoji text round-trips intact through the clipboard path.
 
-**Verification:** On the user's COSMIC desktop, injecting a known string lands it in a focused
-editor and the prior clipboard is intact; capability probe output matches the live environment.
+**Verification:** On the user's COSMIC desktop, injecting a known string via `wtype` lands it in a
+focused editor; a non-faked on-target test confirms the clipboard-restore timing (prior clipboard
+intact, no stale paste); capability probe output matches the live environment.
 
 ---
 
@@ -548,11 +664,12 @@ with toggle as the v1 implementation.
 **Files:** `src/ttstt/activation/base.py`, `src/ttstt/activation/toggle.py`,
 `tests/test_activation.py`.
 
-**Approach:** `Activation` protocol exposing an event source (callbacks/queue) emitting
-`StartListening`/`StopListening`. `ToggleActivation` holds a boolean state advanced by a
-`toggle()` call (invoked by the daemon when the control socket receives `toggle`): odd press →
-start, even press → stop. Designed so `PttActivation` (evdev key down/up) and
-`VadActivation`/`WakeWordActivation` implement the same protocol later.
+**Approach:** `ToggleActivation` holds a boolean state advanced by a `toggle()` call (invoked by
+the daemon when the control socket receives `toggle`): odd press → start, even press → stop. Per
+KTD7 the `Activation` *protocol* is **provisional in v1** — ship `ToggleActivation` as a concrete
+class and keep `base.py` a thin placeholder; formally extract the protocol in Phase 2 when
+`PttActivation` (evdev key down/up) and `VadActivation`/`WakeWordActivation` become its second
+consumers, so the seam is introduced by its second implementation rather than ahead of it.
 
 **Patterns to follow:** KTD4, KTD7.
 
@@ -577,14 +694,17 @@ working dictation loop.
 **Dependencies:** U2, U3, U4, U5, U6.
 
 **Files:** `src/ttstt/daemon.py`, `src/ttstt/status.py`, `src/ttstt/cli.py` (implement
-`ttstt daemon`, `ttstt toggle`, `ttstt ptt`), `tests/test_daemon.py`.
+`ttstt daemon` and `ttstt toggle`; `ttstt ptt` stays a roadmap stub in v1), `tests/test_daemon.py`.
 
-**Approach:** `ttstt daemon` opens a unix domain socket at the XDG runtime dir, constructs the
-configured Activation/STT/Injector, and runs an event loop: on StartListening → `audio.start()`
-+ status "listening"; on StopListening → `audio.stop()` → `stt.transcribe()` (status
-"transcribing") → `injector.inject()` → clear status. `ttstt toggle` is a thin client that
-connects to the socket and sends `toggle` (and prints an actionable error if the daemon isn't
-running). `status.py` shows a minimal desktop notification (libnotify via `notify-send` or
+**Approach:** `ttstt daemon` opens a unix domain socket in the XDG runtime dir, **created with
+`0600` perms** so only the owning user can send commands (the socket is a keystroke-injection
+trigger — a resident process that types into the focused app on command; XDG_RUNTIME_DIR's `0700`
+is the primary guard, `0600` on the socket is the explicit belt-and-suspenders). It constructs
+the configured Activation/STT/Injector and runs an event loop: on StartListening →
+`audio.start()` + status "listening"; on StopListening → `audio.stop()` → `stt.transcribe()`
+(status "transcribing") → `injector.inject()` → clear status. `ttstt toggle` is a thin client
+that connects to the socket and sends `toggle` (and prints an actionable error if the daemon
+isn't running). `status.py` shows a minimal desktop notification (libnotify via `notify-send` or
 `gi`), explicitly the v1 stand-in for the roadmap OSD. STT runs off the capture/IO path
 (thread/async) so the control socket stays responsive.
 
@@ -599,7 +719,7 @@ running). `status.py` shows a minimal desktop notification (libnotify via `notif
 - Daemon survives an STT exception on one utterance (logs, clears status, stays ready for the next).
 - Status transitions listening → transcribing → idle in order; status is cleared even when injection fails.
 - Two rapid toggles don't start two concurrent captures (state guarded).
-- Socket is created in the runtime dir and cleaned up on daemon shutdown.
+- Socket is created in the runtime dir with `0600` perms and cleaned up on daemon shutdown.
 
 **Verification:** On the user's machine, `ttstt daemon` + a bound key performs F1 end-to-end (AE1); killing/restarting the daemon recreates the socket cleanly.
 
@@ -610,34 +730,42 @@ running). `status.py` shows a minimal desktop notification (libnotify via `notif
 **Goal:** A first-run command that checks dependencies/permissions, fetches the default model,
 writes config, and tells the user exactly how to bind the toggle key in COSMIC.
 
-**Requirements:** R7; supports R3 (device probe), R5 (uinput/ydotoold checks), R8.
+**Requirements:** R7; supports R3 (device probe), R5 (injector-chain probe), R8.
 
 **Dependencies:** U2, U4, U5.
 
 **Files:** `src/ttstt/onboarding.py`, `src/ttstt/cli.py` (implement `ttstt onboard`),
 `tests/test_onboarding.py`.
 
-**Approach:** `ttstt onboard` runs ordered checks, each reporting OK / actionable-fix: PipeWire +
-an input device present; uinput access + `ydotoold` running (the no-sudo friction point — detect
-group membership / udev rule and print the exact remediation, since the user runs without sudo);
-optional CUDA presence + which device index maps to the RTX 3070; `wl-copy`/`wl-paste` present.
-Then: download the default `faster-whisper` model; write a starter `config.toml` if absent;
-print the COSMIC keybind instruction (bind a custom shortcut to `ttstt toggle`). Hard failures
-(uinput inaccessible) exit non-zero with the fix.
+**Approach:** `ttstt onboard` runs ordered checks, each reporting OK / actionable-fix:
+**(1) Audio** — PipeWire present + an input device, plus a `sounddevice` capture smoke-test
+(record → playback) confirming the PortAudio↔PipeWire binding actually enumerates the device
+(KTD9); name the `python-rtmixer` fallback if it fails. **(2) Injector** — probe the chain and
+report which injector is active: `wtype` (virtual-keyboard global present, expected on COSMIC) →
+clipboard (`wl-copy`/`wl-paste`) → `ydotool`/uinput. Only fail hard if *no* injector is
+available. For the `ydotool` fallback, check *actual* uinput access (device ACL/perms), not
+merely `input`-group membership, since group membership alone does not always grant access.
+**(3) GPU** — optional CUDA probe reporting the CUDA device index for the RTX 3070 (distinct from
+voxtype's Vulkan index — OQ1); CPU mode otherwise. **(4) Model** — download the default
+`faster-whisper` model pinned to a revision and **verify its published hash** before use
+(fail closed on mismatch). Then write a starter `config.toml` if absent and print the COSMIC
+keybind instruction (bind a custom shortcut to `ttstt toggle`).
 
-**Patterns to follow:** KTD4 (COSMIC keybind guidance), KTD5 (only checks for permissive tools).
+**Patterns to follow:** KTD3 (injector chain), KTD4 (COSMIC keybind guidance), KTD5 (only checks
+for permissive tools).
 
 **Test scenarios:**
-- Covers AE4. All deps faked-present → exits 0, writes config if missing, prints the `ttstt toggle` keybind instruction.
-- Covers AE4. uinput inaccessible (faked) → reports the exact remediation (udev rule / `input` group) and exits non-zero.
+- Covers AE4. All deps faked-present → exits 0, selects `wtype`, writes config if missing, prints the `ttstt toggle` keybind instruction.
+- Covers AE4. No injector available (faked: no virtual-keyboard global, no uinput) → actionable "no injector" message + non-zero exit. A missing `ydotool` alone does NOT fail when `wtype` works.
+- Capture smoke-test fails (faked) → reports the `python-rtmixer` fallback guidance, non-zero or warn per severity.
+- Model hash mismatch (faked) → refuses the artifact, clear error, non-zero, config left consistent.
 - Existing config is not clobbered (idempotent re-run; reports "config exists").
-- CUDA-present probe reports the device index for the discrete GPU; CUDA-absent reports CPU mode without error.
-- Missing PipeWire/input device → actionable message, appropriate exit code.
-- Model download failure → clear error, non-zero, leaves config in a consistent state.
+- CUDA-present probe reports the discrete-GPU CUDA index; CUDA-absent reports CPU mode without error.
+- uinput fallback check distinguishes real ACL access from bare group membership.
 
-**Verification:** On the user's COSMIC machine, `ttstt onboard` from clean state produces a
-working config + downloaded model and the printed keybind makes AE1 work; the no-sudo uinput
-path is exercised and its guidance is correct.
+**Verification:** On the user's COSMIC machine, `ttstt onboard` from clean state selects `wtype`,
+runs the capture smoke-test, verifies the model hash, writes config, and the printed keybind
+makes AE1 work.
 
 ---
 
@@ -661,7 +789,10 @@ Ordering reflects dependency + value to the user's daily dictation.
   `.onnx` as opt-in) and custom cloning from local samples via Chatterbox (note: mandatory Perth
   watermark on all output). *(R11, F5)*
 - **Phase 7 — Cloud adapters.** STT/TTS cloud backends behind the same interfaces (Deepgram,
-  OpenAI, ElevenLabs, …), opt-in and key-gated. *(R13)*
+  OpenAI, ElevenLabs, …), opt-in and key-gated. **Credential-handling acceptance criterion:**
+  API keys are read from env or an OS keyring — **never** from a committed `config.toml` (this is
+  a public repo), never written to logs, with documented rotation and dev/prod env separation.
+  *(R13)*
 - **Phase 8 — TUI parity.** Textual-based TUI with full parity for all preferences. *(R14)*
 - **Phase 9 — Full OSD.** `gtk4-layer-shell` overlay (minimal-by-default, configurable), with a
   plain top-level fallback on GNOME (no wlr-layer-shell). *(R15)*
@@ -672,67 +803,88 @@ Ordering reflects dependency + value to the user's daily dictation.
 
 ## Risks & Dependencies
 
-- **No-sudo uinput setup (high).** `ydotool` needs uinput access (udev rule / `input` group),
-  typically a one-time sudo step; the user runs without sudo. *Mitigation:* onboarding detects
-  and prints exact remediation; document the clipboard-paste path's same dependency on a paste
-  keystroke; investigate the GlobalShortcuts/libei portal route as a sudo-free future path.
-- **COSMIC compositor gaps (high).** No virtual-keyboard protocol (injection) and no
-  wlr-layer-shell on GNOME (OSD). *Mitigation:* uinput-first injection (KTD3); OSD fallback in
-  Phase 9; runtime capability detection throughout — never trust version numbers.
-- **GPU device confusion (medium).** Prior `voxtype` GPU-device issue (render-node enumeration).
-  *Mitigation:* onboarding probes and reports the CUDA index explicitly; config knob; CPU
-  fallback (AE5). See Open Questions.
+- **Injection capability detection (medium).** The v1 default (`wtype`) is verified working on
+  the target COSMIC 1.0.0, but other environments may lack the virtual-keyboard global.
+  *Mitigation:* runtime probe orders `wtype` → clipboard → `ydotool`/uinput; onboarding reports
+  the active injector. The `ydotool` fallback needs uinput access — already satisfied on the
+  target (user in `input` group + `/dev/uinput` ACL), but onboarding checks *actual* ACL/perms,
+  not bare group membership. (This risk was the plan's original #1 "no-sudo uinput" concern —
+  demoted after verifying `wtype` is the working no-sudo default here.)
+- **Model-weight supply chain (medium).** Unpinned/unverified weight downloads are an RCE/integrity
+  vector and run unattended in onboarding. *Mitigation:* pin hub revision + verify published hash
+  over HTTPS, fail closed (U4/U8).
+- **Clipboard-history exposure (medium).** The clipboard fast path transits dictated text (possibly
+  secrets) where history managers snapshot it. *Mitigation:* `inject.sensitive = "type"` knob
+  forces typing; clipboard-paste opt-in for arbitrary text (U5).
+- **Compositor capability gaps (medium).** GNOME's Mutter lacks wlr-layer-shell (OSD) and the
+  virtual-keyboard global (`wtype`). *Mitigation:* runtime capability detection throughout;
+  `ydotool`/uinput injection fallback; OSD top-level fallback in Phase 9 — never trust version
+  numbers.
+- **GPU device selection (medium).** The user's prior voxtype failure was a real GPU device-index
+  crash loop (iGPU vs RTX 3070) — the most impactful past issue. *Mitigation:* onboarding probes
+  and reports the CUDA index (distinct from voxtype's Vulkan index); config knob; GPU warm-up →
+  CPU fallback (AE5). See OQ1.
 - **Model licensing drift (medium).** Engine licenses shift (Piper → GPL-3.0; XTTS non-commercial;
-  Porcupine caps). *Mitigation:* R16 posture enforced in CONTRIBUTING + a license note per
-  bundled engine; GPL/NC engines opt-in only.
+  Porcupine caps), and *weights* can carry different terms than code. *Mitigation:* R16 posture
+  enforced in CONTRIBUTING (judged on weights, KTD5) + a license note per bundled engine; GPL/NC
+  engines opt-in only.
 - **Streaming complexity (medium, deferred).** True streaming + stable-partial injection is the
   hardest later work. *Mitigation:* isolate behind `STTBackend.stream()`; adopt the proven
   LocalAgreement-n algorithm (whisper_streaming / WhisperLiveKit) rather than inventing one.
 - **Chatterbox watermark (low, deferred).** All cloned-voice output carries a mandatory Perth
   watermark. *Mitigation:* disclose in TTS docs; offer permissive alternatives where they exist.
 
-**External dependencies:** `uv`, PipeWire, `ydotool`/`ydotoold`, `wl-clipboard`, CTranslate2/
-`faster-whisper`, `sounddevice`/PortAudio, a CUDA runtime (optional, for GPU).
+**External dependencies:** `uv`, PipeWire, `wtype` (present on target), `wl-clipboard` (present),
+`ydotool`/`ydotoold` (fallback, optional), CTranslate2/`faster-whisper`, `sounddevice`/PortAudio,
+a CUDA runtime + matched cuDNN (optional, for GPU).
 
 ---
 
 ## Verification Contract
 
+- **Gate 0 — Spike (pre-slice):** U0 confirms `wtype` injection and 3070 transcription end-to-end
+  on-target before U2+ are built.
 - **Gate 1 — Static:** `ruff check` clean; `pytest` green (model-download integration tests
   marked and runnable locally, skippable in CI).
 - **Gate 2 — Unit:** each unit's enumerated test scenarios pass.
 - **Gate 3 — Integration (the spine):** the U7 toggle→toggle→inject test passes with faked
   capture/STT/injector (AE1 wired without hardware).
-- **Gate 4 — Manual on-target (COSMIC):** AE1 (dictate→inject), AE3 (clipboard restore), AE4
-  (onboarding), AE5 (CUDA→CPU fallback) verified on the user's machine.
+- **Gate 4 — Manual on-target (COSMIC):** AE1 (dictate→inject via `wtype`), AE3 (clipboard
+  restore *timing* — a non-faked test), AE4 (onboarding + injector selection), AE5 (GPU
+  warm-up → CPU fallback) verified on the user's machine.
 - **Offline check:** AE2 — full default path succeeds with networking disabled.
 
 ---
 
 ## Definition of Done
 
+- U0 spike has validated `wtype` injection + 3070 transcription on-target before the slice is built.
 - Units U1–U8 implemented; all per-unit test scenarios and the Verification Contract gates pass.
-- `ttstt onboard` brings a clean COSMIC machine to a working state and prints the correct keybind.
+- `ttstt onboard` brings a clean COSMIC machine to a working state (selects `wtype`, verifies the
+  model hash, runs the capture smoke-test) and prints the correct keybind.
 - AE1–AE6 hold on the user's RTX 3070 / COSMIC desktop, including the offline and CPU-fallback paths.
 - `CONTRIBUTING.md` (Karpathy style guide + bend-for-production section), `README.md`, and
   `llms.txt` are present and accurate.
 - Repo pushed to `github.com/vulcanneural/ttstt` (public) with CI green.
-- Only permissively licensed engines are bundled (R16 holds).
+- Only permissively licensed engines are bundled, judged on weights (R16/KTD5 hold).
 
 ---
 
 ## Open Questions
 
-- **OQ1 — CUDA device index for the RTX 3070.** The prior `voxtype` `gpu_device=1` fix referred
-  to DRI render-node enumeration (iGPU vs dGPU), which is *not* the same as the CUDA device index
-  `faster-whisper` uses. *Resolve at implementation:* `ttstt onboard` enumerates CUDA devices and
-  reports the correct index; default config leaves it unset (auto) until verified on-machine.
+- **OQ1 — CUDA device index for the RTX 3070.** The prior `voxtype` `gpu_device=1` fix was a
+  Vulkan device index (voxtype uses a Vulkan/whisper.cpp backend), which is *not* the same
+  enumeration as the CUDA device index `faster-whisper`/CTranslate2 uses. *Resolve at
+  implementation:* `ttstt onboard` enumerates CUDA devices and reports the correct index; default
+  config leaves it unset (auto) until verified on-machine.
 - **OQ2 — Toggle vs hold-PTT as the daily default.** The slice ships toggle (robust on COSMIC).
   True hold-PTT needs evdev or the GlobalShortcuts portal. Worth deciding in Phase 2 whether
   evdev (needs input-group access, like uinput) or the portal (sudo-free but less mature) is the
   primary PTT path. *Deferred to Phase 2.*
-- **OQ3 — uinput access without sudo.** Whether a sudo-free path (portal/libei) is viable enough
-  to recommend over the one-time udev/group setup. *Deferred; investigate in Phase 2.*
+- **OQ3 — uinput access without sudo (fallback only).** Now low-stakes for v1 since `wtype` is
+  the no-sudo default and the user already has uinput access; matters only for the `ydotool`
+  fallback on non-COSMIC machines or for evdev-based PTT. Whether a sudo-free path (portal/libei)
+  beats the one-time udev/group setup. *Deferred; investigate in Phase 2.*
 - **OQ4 — Streaming default model on 8 GB VRAM.** Nemotron-Streaming-0.6B vs Kyutai STT vs
   sherpa-onnx Zipformer on the 3070 alongside other GPU use. *Deferred to Phase 3 (benchmark).*
 
