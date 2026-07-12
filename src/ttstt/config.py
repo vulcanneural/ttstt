@@ -214,15 +214,6 @@ def get_config_value(dotted_key: str, config_path: Path | None = None) -> Any:
     return getattr(section_model, key)
 
 
-def _coerce_cli_value(raw: str) -> Any:
-    if raw.lower() in ("true", "false"):
-        return raw.lower() == "true"
-    try:
-        return int(raw)
-    except ValueError:
-        return raw
-
-
 def _toml_literal(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -253,9 +244,15 @@ def set_config_value(dotted_key: str, raw_value: str, config_path: Path | None =
     path = config_path or default_config_path()
     section, key = _split_dotted(dotted_key)
     file_nested = _read_toml_file(path)
-    file_nested.setdefault(section, {})[key] = _coerce_cli_value(raw_value)
+    file_nested.setdefault(section, {})[key] = raw_value
 
-    _merge_and_validate(("file", file_nested))  # raises ConfigError if invalid
+    # Validate with the RAW string — pydantic's lax mode coerces "8000"->int and
+    # "true"->bool exactly where the target field demands it (same as the env-var
+    # path) and leaves str fields alone (lax mode never coerces int->str, so
+    # pre-guessing the type here would wrongly reject e.g. "2" for a str field).
+    # On success, write the *validated* value so the TOML stays cleanly typed.
+    config, _sources = _merge_and_validate(("file", file_nested))
+    file_nested[section][key] = getattr(getattr(config, section), key)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     _write_toml_file(path, file_nested)

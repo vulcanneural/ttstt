@@ -57,6 +57,9 @@ def _config_show(_args: argparse.Namespace) -> int:
     except ConfigError as exc:
         print(exc, file=sys.stderr)
         return 1
+    except OSError as exc:
+        print(f"cannot read config file: {exc}", file=sys.stderr)
+        return 1
     for section, keys in config.model_dump().items():
         for key, value in keys.items():
             dotted = f"{section}.{key}"
@@ -70,6 +73,9 @@ def _config_get(args: argparse.Namespace) -> int:
     except ConfigError as exc:
         print(exc, file=sys.stderr)
         return 1
+    except OSError as exc:
+        print(f"cannot read config file: {exc}", file=sys.stderr)
+        return 1
     print(_format_config_value(value))
     return 0
 
@@ -79,6 +85,9 @@ def _config_set(args: argparse.Namespace) -> int:
         set_config_value(args.key, args.value)
     except ConfigError as exc:
         print(exc, file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"cannot write config file: {exc}", file=sys.stderr)
         return 1
     return 0
 

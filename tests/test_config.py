@@ -205,6 +205,36 @@ def test_set_config_value_rejects_invalid_value(tmp_path):
     assert not path.exists()
 
 
+def test_set_numeric_looking_value_on_string_field(tmp_path):
+    """sounddevice commonly addresses devices by integer index, so "2" is a realistic
+    value for the str-typed audio.input_device — it must not be pre-coerced to int and
+    then rejected by the str field."""
+    path = tmp_path / "ttstt" / "config.toml"
+
+    set_config_value("audio.input_device", "2", config_path=path)
+
+    assert load_config(config_path=path).audio.input_device == "2"
+    assert 'input_device = "2"' in path.read_text()
+
+
+def test_set_int_field_writes_typed_toml(tmp_path):
+    path = tmp_path / "ttstt" / "config.toml"
+
+    set_config_value("audio.sample_rate", "8000", config_path=path)
+
+    assert load_config(config_path=path).audio.sample_rate == 8000
+    assert "sample_rate = 8000" in path.read_text()  # bare int, not a quoted string
+
+
+def test_set_bool_field_writes_typed_toml(tmp_path):
+    path = tmp_path / "ttstt" / "config.toml"
+
+    set_config_value("inject.sensitive", "true", config_path=path)
+
+    assert load_config(config_path=path).inject.sensitive is True
+    assert "sensitive = true" in path.read_text()  # bare bool, not a quoted string
+
+
 # --- CLI subcommands --------------------------------------------------------------
 
 
@@ -249,3 +279,20 @@ def test_cli_config_get_unknown_key_is_actionable_not_traceback(capsys):
     err = capsys.readouterr().err
     assert "Traceback" not in err
     assert "stt.nonexistent" in err
+
+
+def test_cli_config_set_unwritable_dir_is_actionable_not_traceback(tmp_path, capsys):
+    """A permission error writing the config file must surface as an actionable
+    message + non-zero exit, not a raw OSError traceback."""
+    config_dir = tmp_path / "ttstt"
+    config_dir.mkdir()
+    config_dir.chmod(0o555)  # read+execute only: file creation inside will fail
+    try:
+        exit_code = main(["config", "set", "stt.model", "small"])
+    finally:
+        config_dir.chmod(0o755)  # let pytest clean tmp_path up
+
+    assert exit_code != 0
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert "config.toml" in err
