@@ -24,10 +24,12 @@ will be added by that implementation unit — do not create a placeholder for it
 
 - `__init__.py` — present. Package docstring/marker.
 - `__main__.py` — present. Enables `python -m ttstt`; delegates to `cli.main`.
-- `cli.py` — present (stubs). argparse command tree: `toggle`, `daemon`, `onboard`, `config`
-  (stubbed until their owning unit lands), plus roadmap-only stubs `ptt`, `say`.
-- `config.py` — planned (U2). Layered config (`defaults → config.toml → TTSTT_* env → CLI`),
-  validated with Pydantic. Implements `ttstt config get/set/path/show`.
+- `cli.py` — present. argparse command tree: `toggle`, `daemon`, `onboard` (stubbed until
+  their owning unit lands), `config` (implemented, U2), plus roadmap-only stubs `ptt`, `say`.
+- `config.py` — present (U2). Layered config (`defaults → config.toml → TTSTT_* env → CLI`,
+  each layer tracked with a per-key source label), validated with Pydantic (hand-rolled
+  merge, not pydantic-settings, so `show` can report provenance). Implements `ttstt config
+  get/set/path/show`. Public API for other units: `load_config()`.
 - `audio.py` — planned (U3). `sounddevice` microphone capture into an in-memory buffer.
 - `status.py` — planned (U7). Minimal desktop-notification status (listening/transcribing).
 - `daemon.py` — planned (U7). Long-running loop + unix control socket (0600 perms); wires
@@ -49,7 +51,8 @@ will be added by that implementation unit — do not create a placeholder for it
 ## `tests/`
 
 - `test_cli.py` — present. CLI command-tree wiring: help/version, stub exit codes/messages.
-- `test_config.py` — planned (U2).
+- `test_config.py` — present (U2). Layered config precedence, source labels, invalid/unknown
+  key rejection, `config get/set/path/show` CLI wiring.
 - `test_audio.py` — planned (U3).
 - `test_stt_faster_whisper.py` — planned (U4).
 - `test_inject.py` — planned (U5).

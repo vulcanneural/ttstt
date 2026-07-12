@@ -3,9 +3,11 @@
 Covers U1's scoped test scenarios:
 - `ttstt --help` exits 0 and lists the command tree.
 - `ttstt --version` prints the version from package metadata.
-- Stub commands (toggle, daemon, onboard, config) exit non-zero with a clear
+- Stub commands (toggle, daemon, onboard) exit non-zero with a clear
   "not yet implemented: lands in U<n>" message.
 - Roadmap stubs (ptt, say) exit non-zero with a "not yet implemented (roadmap)" message.
+
+`config` is implemented (U2, see test_config.py) and is no longer a stub.
 """
 
 import subprocess
@@ -42,7 +44,6 @@ def test_version_prints_package_metadata_version(capsys):
         ("toggle", "U7"),
         ("daemon", "U7"),
         ("onboard", "U8"),
-        ("config", "U2"),
     ],
 )
 def test_stub_commands_exit_nonzero_with_unit_reference(capsys, command, unit):
