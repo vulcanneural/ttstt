@@ -1,0 +1,69 @@
+# llms.txt — TTSTT machine-readable project map
+
+> Local-first, modular voice toolkit for Linux (speech-to-text + text-to-speech).
+> This file is a navigation aid for agents and new contributors: every module, its one-line
+> job, its entry point (if any), and the unit that owns it. Update it in the same change that
+> adds or moves a module (CONTRIBUTING.md, rule 7). Full design doc: docs/plans/.
+
+Status legend: `present` = exists in this repo today. `planned (U<n>)` = not yet created;
+will be added by that implementation unit — do not create a placeholder for it ahead of time.
+
+## Root
+
+- `pyproject.toml` — present. uv-managed project; console entry point `ttstt = "ttstt.cli:main"`.
+- `uv.lock` — present. Locked dependency graph.
+- `README.md` — present. Project pitch and status.
+- `LICENSE` — present. MIT.
+- `CONTRIBUTING.md` — present. Code style guide + licensing posture (R16).
+- `llms.txt` — present. This file.
+- `docs/plans/` — present. Implementation plan(s); source of truth for units/decisions.
+- `scratch/spike.py` — present. U0 throwaway feasibility spike (record→transcribe→inject).
+  Not part of the shipped package; not held to the style guide.
+
+## `src/ttstt/` — the package
+
+- `__init__.py` — present. Package docstring/marker.
+- `__main__.py` — present. Enables `python -m ttstt`; delegates to `cli.main`.
+- `cli.py` — present (stubs). argparse command tree: `toggle`, `daemon`, `onboard`, `config`
+  (stubbed until their owning unit lands), plus roadmap-only stubs `ptt`, `say`.
+- `config.py` — planned (U2). Layered config (`defaults → config.toml → TTSTT_* env → CLI`),
+  validated with Pydantic. Implements `ttstt config get/set/path/show`.
+- `audio.py` — planned (U3). `sounddevice` microphone capture into an in-memory buffer.
+- `status.py` — planned (U7). Minimal desktop-notification status (listening/transcribing).
+- `daemon.py` — planned (U7). Long-running loop + unix control socket (0600 perms); wires
+  capture → STT → injection. Implements `ttstt daemon` and `ttstt toggle`.
+- `onboarding.py` — planned (U8). Dependency/permission checks, model fetch, config write,
+  prints the COSMIC keybind to set. Implements `ttstt onboard`.
+- `stt/base.py` — planned (U4). `STTBackend` protocol (`transcribe`, forward-declared `stream`).
+- `stt/faster_whisper.py` — planned (U4). Default v1 STT implementation (+ GPU warm-up →
+  CPU fallback, model hash verification).
+- `inject/base.py` — planned (U5). `Injector` protocol + runtime capability detection +
+  `select_injector` chooser.
+- `inject/wtype.py` — planned (U5). Virtual-keyboard injector; v1 default on COSMIC.
+- `inject/clipboard.py` — planned (U5). Clipboard+paste fast path (consume-then-restore).
+- `inject/ydotool.py` — planned (U5). uinput injector; compositor-agnostic fallback.
+- `activation/base.py` — planned (U6). `Activation` protocol — provisional; one concrete
+  implementation ships first, protocol formalized when a second implementation lands.
+- `activation/toggle.py` — planned (U6). `ToggleActivation`: odd press starts, even stops.
+
+## `tests/`
+
+- `test_cli.py` — present. CLI command-tree wiring: help/version, stub exit codes/messages.
+- `test_config.py` — planned (U2).
+- `test_audio.py` — planned (U3).
+- `test_stt_faster_whisper.py` — planned (U4).
+- `test_inject.py` — planned (U5).
+- `test_activation.py` — planned (U6).
+- `test_daemon.py` — planned (U7).
+- `test_onboarding.py` — planned (U8).
+
+## `.github/workflows/`
+
+- `ci.yml` — present. Linux-only: checkout → install uv → `uv sync` → `uv run ruff check` →
+  `uv run pytest`.
+
+## Entry points
+
+- CLI: `ttstt` (console script) or `python -m ttstt`, both routed through `ttstt.cli:main`.
+- Commands (v1 slice): `ttstt toggle`, `ttstt daemon`, `ttstt onboard`, `ttstt config`.
+- Commands (roadmap, stubbed in v1): `ttstt ptt`, `ttstt say`.
