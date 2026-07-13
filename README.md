@@ -1,5 +1,10 @@
 # TTSTT
 
+> **Superseded:** TTSTT has been superseded by [ttstt-omni](https://github.com/vulcanneural/ttstt-omni)
+> (Rust voice engine; same goals, wider scope — all activation modes, conversation plane, TTS).
+> This repo is retained for its plan/research ancestry (`docs/plans/`) and the Python
+> vertical-slice reference on branch [`feat/ttstt-v1-slice`](../../tree/feat/ttstt-v1-slice).
+
 **Local-first, modular speech toolkit — speech-to-text and text-to-speech that you actually own.**
 
 TTSTT is a Linux-first voice package that does dictation and speech synthesis locally by
